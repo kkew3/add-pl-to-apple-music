@@ -30,8 +30,6 @@ def make_parser():
         help=('include music files from FILE_LIST (one per line) in the '
               'playlist rather than from command line; `-` means /dev/stdin'))
     parser.add_argument(
-        '-D', '--description', default='', help=('the playlist description'))
-    parser.add_argument(
         '-W',
         '--no-warnings',
         action='store_true',
@@ -64,10 +62,9 @@ def as_abs_path(
 
 
 def read_include_music_files(
-    basedir: Path,
     files_from: ty.Optional[str],
     files_to_include: ty.List[str],
-) -> ty.List[Path]:
+) -> ty.List[str]:
     if files_from == '-':
         # read from stdin
         files_to_include = [line.rstrip('\n') for line in sys.stdin]
@@ -78,7 +75,7 @@ def read_include_music_files(
     else:
         # read from files_to_include; nothing else need to be done
         pass
-    return [as_abs_path(basedir, x) for x in files_to_include]
+    return files_to_include
 
 
 def parse_library_xml(
@@ -110,79 +107,62 @@ def parse_library_xml(
     return plist, location_to_track_dict
 
 
-def build_tracks_dict_given_files(
-    location_to_track_dict: ty.Dict[Path, dict],
-    paths: ty.Iterable[Path],
-) -> ty.Tuple[ty.Dict[str, dict], ty.List[int]]:
-    """
-    :param location_to_track_dict: the 2nd returned item of
-           ``parse_library_xml``
-    :param paths: the file paths in the playlist
-    :return: the tracks dict, the track IDs
-    """
-    tracks = {}
-    track_ids = []
-    paths = set(paths)
-    for path, track_dict in location_to_track_dict.items():
-        if path in paths:
-            tid = track_dict['Track ID']
-            track_ids.append(tid)
-            tracks[str(tid)] = track_dict
-    return tracks, track_ids
+class PlaylistsBuilder:
+    def __init__(
+        self,
+        basedir: Path,
+        library_xml: Path,
+        no_warnings: bool,
+    ) -> None:
+        self.basedir = basedir
+        self._base_plist, self._location_to_track_dict = parse_library_xml(
+            library_xml, no_warnings)
+        self.playlists = {}
 
+    def __getitem__(self, name):
+        return self.playlists[name]
 
-def build_playlist_dict_given_track_ids(
-    name: str,
-    desc: str,
-    track_ids: ty.List[int],
-) -> ty.List[dict]:
-    """
-    :param name: name of the playlist
-    :param desc: description of the playlist
-    :param track_ids: the track IDs to include in the playlist
-    :return: a singleton array whose first entry is the playlist dict
-    """
-    return [{
-        'Name': name,
-        'Description': desc,
-        'Playlist ID': 0,  # a placeholder
-        'Playlist Persistent ID': '',
-        'All Items': True,
-        'Playlist Items': [{
-            'Track ID': tid
-        } for tid in track_ids],
-    }]
+    def __setitem__(self, name, value):
+        self.playlists[name] = value
 
-
-def fill_base_plist(
-    base_plist: dict,
-    tracks_dict: ty.Dict[str, dict],
-    playlist_dict: ty.List[dict],
-) -> None:
-    """
-    :param base_plist: the 1st returned item of ``parse_library_xml``
-    :param tracks_dict: the 1st returned item of
-           ``build_tracks_dict_given_files``
-    :param playlist_dict: the 1st returned item of
-           ``build_playlist_dict_given_track_ids``
-    """
-    base_plist['Tracks'] = tracks_dict
-    base_plist['Playlists'] = playlist_dict
+    def build(self, output: Path) -> None:
+        tracks_dict = {}
+        name_to_track_ids = {}
+        for name, paths in self.playlists.items():
+            paths = set(as_abs_path(self.basedir, x) for x in paths)
+            name_to_track_ids[name] = []
+            for path, track_dict in self._location_to_track_dict.items():
+                if path in paths:
+                    tid = track_dict['Track ID']
+                    name_to_track_ids[name].append(tid)
+                    tracks_dict[str(tid)] = track_dict
+        playlists_dict = [
+            {
+                'Name': name,
+                'Description': '',
+                'Playlist ID': 0,  # a placeholder
+                'Playlist Persistent ID': '',
+                'All Items': True,
+                'Playlist Items': [{
+                    'Track ID': tid
+                } for tid in track_ids],
+            } for name, track_ids in name_to_track_ids.items()
+        ]
+        self._base_plist['Tracks'] = tracks_dict
+        self._base_plist['Playlists'] = playlists_dict
+        with open(output, 'wb') as outfile:
+            plistlib.dump(self._base_plist, outfile)
 
 
 def main():
+    """
+    A demo of how to use `PlaylistsBuilder`.
+    """
     args = make_parser().parse_args()
-    music_files = read_include_music_files(args.basedir, args.files_from,
-                                           args.files_to_include)
-    base_plist, location_to_track_dict = parse_library_xml(
-        args.library_xml, args.no_warnings)
-    tracks_dict, track_ids = build_tracks_dict_given_files(
-        location_to_track_dict, music_files)
-    playlist_dict = build_playlist_dict_given_track_ids(
-        args.name, args.description, track_ids)
-    fill_base_plist(base_plist, tracks_dict, playlist_dict)
-    with open(args.output_xml, 'wb') as outfile:
-        plistlib.dump(base_plist, outfile)
+    bd = PlaylistsBuilder(args.basedir, args.library_xml, args.no_warnings)
+    files = read_include_music_files(args.files_from, args.files_to_include)
+    bd[args.name] = files
+    bd.build(args.output_xml)
 
 
 if __name__ == '__main__':

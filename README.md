@@ -23,7 +23,7 @@ This Python script is a solution to such problem.
 2. Use the Python script to generate a playlist XML. Suppose this is named `playlist.xml`.
 3. Import `playlist.xml` into Apple Music app through `File > Library > Import Playlist...`.
 
-### Script usage
+### Script command line usage
 
 Create a playlist named `foo` containing `1.m4a` and `4.m4a`, and write the playlist XML to `out.xml`:
 
@@ -32,6 +32,24 @@ python3 create_pl.py -n foo library.xml out.xml 1.m4a 4.m4a
 ```
 
 For detailed usage, see `python3 create_pl.py --help`.
+
+### Script Python console usage
+
+We may also create a playlist XML grouping multiple playlists at once, so that only one import is required, by importing `create_pl` as a module inside Python console.
+Again using the `foo` and `bar` example above:
+
+```python
+import create_pl
+from pathlib import Path
+bd = create_pl.PlaylistsBuilder(Path.home(), Path('library.xml'), True)
+bd['foo'] = ['1.m4a', '4.m4a']
+bd['bar'] = ['2.m4a', '3.m4a']
+bd.build('out.xml')
+```
+
+We may either save this as a script besides `create_pl.py` and run it, or directly type this snippet into Python console.
+
+As a matter of fact, the `main()` function of `create_pl.py` is a real-world demo of using the script as an importable module.
 
 ## Mechanism
 
