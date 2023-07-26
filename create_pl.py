@@ -118,6 +118,7 @@ class PlaylistsBuilder:
         self._base_plist, self._location_to_track_dict = parse_library_xml(
             library_xml, no_warnings)
         self.playlists = {}
+        self.no_warnings = no_warnings
 
     def __getitem__(self, name):
         return self.playlists[name]
@@ -129,10 +130,16 @@ class PlaylistsBuilder:
         tracks_dict = {}
         name_to_track_ids = {}
         for name, paths in self.playlists.items():
-            paths = set(as_abs_path(self.basedir, x) for x in paths)
             name_to_track_ids[name] = []
-            for path, track_dict in self._location_to_track_dict.items():
-                if path in paths:
+            for path in paths:
+                abspath = as_abs_path(self.basedir, path)
+                try:
+                    track_dict = self._location_to_track_dict[abspath]
+                except KeyError:
+                    if not self.no_warnings:
+                        warnings.warn(
+                            '{} not found in library xml'.format(path))
+                else:
                     tid = track_dict['Track ID']
                     name_to_track_ids[name].append(tid)
                     tracks_dict[str(tid)] = track_dict
